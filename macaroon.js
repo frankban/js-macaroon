@@ -53,12 +53,11 @@ function macaroon() {
     }
   }
 
-  // assertBitArray asserts that the given object
-  // is a bit array, and fails with an exception including
+  // assertUint8Array asserts that the given object
+  // is a Uint8array, and fails with an exception including
   // "what" if it is not.
-  function assertBitArray(obj, what) {
-    // TODO is a more specific test than this possible?
-    if (!(obj instanceof Array)) {
+  function assertUint8Array(obj, what) {
+    if (!(obj instanceof Uint8Array)) {
       throw new Error('invalid ' + what + ': ' + obj);
     }
   }
@@ -107,8 +106,9 @@ function macaroon() {
   var keyGen = sjcl.codec.utf8String.toBits('macaroons-key-generator');
 
   // makeKey returns a fixed length key suitable for use as a nacl secretbox
-  // key. It accepts and returns a sjcl bitArray.
+  // key. It accepts a Uint8Array and returns a sjcl bitArray.
   function makeKey(variableKey) {
+    variableKey = uint8ArrayToBitArray(variableKey);
     return keyedHash(keyGen, variableKey);
   }
 
@@ -155,7 +155,7 @@ function macaroon() {
     m._caveats = [];
     assertString(loc, 'macaroon location');
     assertString(id, 'macaroon identifier');
-    assertBitArray(rootKey, 'macaroon root key');
+    assertUint8Array(rootKey, 'macaroon root key');
     rootKey = makeKey(rootKey);
     m._location = loc;
     m._identifier = id;
@@ -182,6 +182,7 @@ function macaroon() {
     m._location = obj.location;
     assertString(obj.identifier, 'macaroon identifier');
     m._identifier = obj.identifier;
+
     m._caveats = obj.caveats.map(function(jsonCav) {
         var cav = {
             _identifier: null,
@@ -315,19 +316,15 @@ function macaroon() {
 
   // bound returns a copy of the macaroon prepared for
   // being used to discharge a macaroon with the given signature,
-  // which should be an sjcl bitArray.
+  // which should be a Uint8Array.
   Macaroon.prototype.bind = function(sig) {
+    sig = uint8ArrayToBitArray(sig);
     this._signature = bindForRequest(sig, this._signature);
   };
 
   // caveats returns a list of all the caveats in the macaroon.
   Macaroon.prototype.getCaveats = function() {
     return this._caveats;
-  };
-
-  // signature returns the macaroon's signature as a buffer.
-  Macaroon.prototype.signature = function() {
-    return this._signature;
   };
 
   // clone returns a copy of the macaroon. Any caveats added
@@ -352,10 +349,9 @@ function macaroon() {
     return this._identifier;
   };
 
-  // signature returns the macaroon's signature as
-  // sjcl bitArray.
+  // signature returns the macaroon's signature as a Uint8Array.
   Macaroon.prototype.signature = function() {
-    return this._signature;
+    return bitArrayToUint8Array(this._signature);
   };
 
   // addThirdPartyCaveat adds a third-party caveat to the macaroon,
@@ -367,10 +363,11 @@ function macaroon() {
   // The root key must be an sjcl bitArray; the other arguments
   // must be strings.
   Macaroon.prototype.addThirdPartyCaveat = function(rootKey, caveatId, loc) {
-    assertBitArray(rootKey, 'caveat root key');
+    assertUint8Array(rootKey, 'caveat root key');
     assertString(caveatId, 'caveat id');
     assertString(loc, 'caveat location');
     var verificationId = encrypt(this._signature, makeKey(rootKey));
+    verificationId = bitArrayToUint8Array(verificationId);
     this.addCaveat(caveatId, verificationId, loc);
   };
 
@@ -393,7 +390,8 @@ function macaroon() {
     };
     if (verificationId !== null) {
       assertString(loc, 'macaroon caveat location');
-      assertBitArray(verificationId, 'macaroon caveat verification id');
+      assertUint8Array(verificationId, 'macaroon caveat verification id');
+      verificationId = uint8ArrayToBitArray(verificationId);
       cav._location = loc;
       cav._vid = verificationId;
     }
@@ -412,11 +410,10 @@ function macaroon() {
   // Verify throws an exception if the verification fails.
   Macaroon.prototype.verify = function(rootKey, check, discharges) {
     rootKey = makeKey(rootKey);
-    var i, used = {};
     discharges = discharges || [];
-    for (i = 0; i < discharges.length; i++) {
-        used[i] = 0;
-    }
+    var used = discharges.map(function () {
+        return 0;
+    });
     this._verify(this._signature, rootKey, check, discharges, used);
     discharges.forEach(function(dm, i) {
         if (used[i] === 0) {
